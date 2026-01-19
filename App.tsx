@@ -28,7 +28,7 @@ const App: React.FC = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const audio = new Audio('pencil-marking.wav');
+    const audio = new Audio('/pencil-marking.wav');
     audio.loop = true;
     audioRef.current = audio;
 
