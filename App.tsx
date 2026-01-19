@@ -30,6 +30,7 @@ const App: React.FC = () => {
 
     const audio = new Audio('/pencil-marking.wav');
     audio.loop = true;
+    audio.volume = 0.4;
     audioRef.current = audio;
 
     const resize = () => {
@@ -68,8 +69,12 @@ const App: React.FC = () => {
     const rect = canvas.getBoundingClientRect();
     let clientX, clientY;
     if ('touches' in e) {
-      clientX = (e as React.TouchEvent).touches[0].clientX;
-      clientY = (e as React.TouchEvent).touches[0].clientY;
+      const touchEvent = e as React.TouchEvent;
+      // Use changedTouches for better touch tracking, fallback to touches
+      const touch = touchEvent.changedTouches[0] || touchEvent.touches[0];
+      if (!touch) return null;
+      clientX = touch.clientX;
+      clientY = touch.clientY;
     } else {
       clientX = (e as React.MouseEvent).clientX;
       clientY = (e as React.MouseEvent).clientY;
@@ -80,7 +85,55 @@ const App: React.FC = () => {
   const drawPath = useCallback((pts: Point[]) => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d', { willReadFrequently: true });
-    if (!ctx || pts.length < 2) return;
+    if (!ctx || pts.length < 1) return;
+    
+    // Handle single point (tap/dot)
+    if (pts.length === 1) {
+      const p = pts[0];
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.globalCompositeOperation = tool === 'eraser' ? 'destination-out' : 'source-over';
+      
+      if (tool === 'pencil') {
+        const count = RAINBOW_COLORS.length;
+        const step = brushSize / count;
+        RAINBOW_COLORS.forEach((color, i) => {
+          const offset = (i - (count - 1) / 2) * step;
+          ctx.strokeStyle = color;
+          ctx.lineWidth = step * 1.5;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, step * 0.75, 0, Math.PI * 2);
+          ctx.fill();
+        });
+      } else if (tool === 'rainbow') {
+        ctx.fillStyle = `hsl(${hue}, 100%, 50%)`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, brushSize / 2, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (tool === 'multi-rainbow') {
+        RAINBOW_COLORS.forEach((color, i) => {
+          ctx.fillStyle = color;
+          const sinOffset = Math.sin(hue / 12) * (brushSize / 2);
+          const offset = (i - 3) * (brushSize / 3) + sinOffset;
+          ctx.beginPath();
+          ctx.arc(p.x + offset * 0.3, p.y + offset * 0.3, brushSize / 8, 0, Math.PI * 2);
+          ctx.fill();
+        });
+      } else if (tool === 'crayon') {
+        const colorIndex = Math.floor(hue / 60) % RAINBOW_COLORS.length;
+        ctx.fillStyle = RAINBOW_COLORS[colorIndex];
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, brushSize / 2, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (tool === 'eraser') {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, brushSize / 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      return;
+    }
+    
+    if (pts.length < 2) return;
 
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -167,11 +220,19 @@ const App: React.FC = () => {
   }, [brushSize, tool, hue]);
 
   const handleStart = (e: React.MouseEvent | React.TouchEvent) => {
+    // Prevent default to avoid scrolling and other touch behaviors
+    if ('touches' in e) {
+      e.preventDefault();
+    }
+    
     const p = getCoordinates(e);
     if (p) {
       setIsDrawing(true);
-      setPoints([p, p]); // Initial points for curve calculation
+      setPoints([p]); // Start with single point for tap detection
+      
+      // Play audio when drawing starts
       if (tool !== 'eraser' && audioRef.current) {
+        audioRef.current.currentTime = 0;
         audioRef.current.play().catch(() => {});
       }
     }
@@ -179,20 +240,40 @@ const App: React.FC = () => {
 
   const handleMove = (e: React.MouseEvent | React.TouchEvent) => {
     if (!isDrawing) return;
+    
+    // Prevent default to avoid scrolling during touch drawing
+    if ('touches' in e) {
+      e.preventDefault();
+    }
+    
     const p = getCoordinates(e);
     if (p) {
       const newPoints = [...points, p];
       drawPath(newPoints);
       setPoints(newPoints);
+      
+      // Keep audio playing while drawing (it's already looping)
       if (tool !== 'eraser' && audioRef.current && audioRef.current.paused) {
         audioRef.current.play().catch(() => {});
       }
     }
   };
 
-  const handleEnd = () => {
+  const handleEnd = (e?: React.MouseEvent | React.TouchEvent) => {
+    // Prevent default for touch events
+    if (e && 'touches' in e) {
+      e.preventDefault();
+    }
+    
+    // Draw final point if we only have one point (tap)
+    if (points.length === 1) {
+      drawPath(points);
+    }
+    
     setIsDrawing(false);
     setPoints([]);
+    
+    // Stop audio when drawing ends
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
@@ -229,7 +310,9 @@ const App: React.FC = () => {
         onTouchStart={handleStart}
         onTouchMove={handleMove}
         onTouchEnd={handleEnd}
+        onTouchCancel={handleEnd}
         className="block w-full h-full bg-white shadow-inner"
+        style={{ touchAction: 'none' }}
       />
 
       <Toolbar
