@@ -1,0 +1,7 @@
+{
+  "name": "Rainbow Canvas Pro",
+  "description": "A creative drawing application featuring a unique multi-color rainbow pencil and AI-powered artistic insights using Gemini.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
